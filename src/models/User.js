@@ -32,6 +32,14 @@ const User = sequelize.define('User', {
         type: DataTypes.BOOLEAN,
         defaultValue: true
     },
+    twoFASecret: {
+        type: DataTypes.STRING, // Store 2FA secret
+        allowNull: true,
+    },
+    isTwoFAEnabled: {
+        type: DataTypes.BOOLEAN, // Track if 2FA is enabled
+        defaultValue: false,
+    },
     firstVisit: {
         type: DataTypes.BOOLEAN,
         defaultValue: true

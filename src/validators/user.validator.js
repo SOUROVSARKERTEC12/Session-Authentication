@@ -13,8 +13,12 @@ export const userValidationSchema = z.object({
         .string()
         .min(1, 'Last Name is required'), // Ensures last name is provided
     verified: z.boolean().default(false), // Default value is false for new users
+    twoFASecret:z
+        .string()
+        .nullable()
+        .default(null),
+    isTwoFAEnabled: z.boolean().default(false), // Default value is false for new users
     firstVisit: z.boolean().default(true), // Default value is true for new users
-    profilePicture: z.string().optional(), // Optional, in case the user provides a profile picture
     role: z.enum(['user', 'admin']).default('user'), // Ensures the user has a role (default is 'user')
 });
 

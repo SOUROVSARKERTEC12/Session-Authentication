@@ -10,8 +10,14 @@ import jwt from 'jsonwebtoken';
 import Session from "../models/Session.js";
 import RememberedDevice from "../models/RememberDevices.js";
 import {Op} from "sequelize";
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
+import fs from 'fs';
+import path, { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export const register = async (req, res) => {
     const transaction = await sequelize.transaction();
@@ -44,7 +50,7 @@ export const register = async (req, res) => {
 
         // Request OTP and send verification email
         const otp = EmailOTPService.generateOTP();
-        // console.log(otp);
+        console.log(otp);
 
         // Store OTP in OTPStore table, ensuring the OTP is associated with the TempUser
         await OTPStore.create({
@@ -149,6 +155,12 @@ export const login = async (req, res) => {
         if (!isPasswordValid) {
             return res.status(401).json({ error: 'Invalid password' });
         }
+
+        // Check if 2FA is enabled
+        if (user.isTwoFAEnabled) {
+            return res.status(200).json({ message: '2FA token required' });
+        }
+        // console.log(user.isTwoFAEnabled)
 
         // Check if deviceId exists in cookies
         const deviceId = req.cookies.deviceId;
@@ -326,8 +338,88 @@ export const verifyLoginOTP = async (req, res) => {
     }
 };
 
-// Logout a user
+// Google Authenticator
+export const generate2FA = async (req, res) => {
+    try {
+        const { email } = req.body;
 
+        // Find the user
+        const user = await User.findOne({ where: { email } });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Generate a secret for 2FA
+        const secret = speakeasy.generateSecret({
+            name: `Google_Authenticator (${email})`, // Application name with user email
+        });
+
+        // Store the secret in the database (in production, encrypt this)
+        user.twoFASecret = secret.base32;
+        await user.save();
+
+        // Generate a QR code for the secret
+        const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+        // Generate the <img> HTML tag with the base64 QR code
+        const imgHtml = `<html>
+                                    <img src="${qrCodeUrl}">
+                                 </html>`;
+
+        // Define the file path where you want to save the HTML file
+        const filePath = path.join(__dirname, 'img.html');
+        // Send the QR code image (as base64) and the manual code in the JSON response
+        fs.writeFile(filePath, imgHtml, (err) => {
+            if (err) {
+                console.error('Error saving the HTML file:', err);
+                return res.status(500).json({ message: 'Error saving HTML file' });
+            }
+
+            // Send a response indicating success
+            res.status(200).json({
+                message: '2FA setup HTML file saved',
+                filePath: filePath, // Optionally send the file path in the response
+            });
+        });
+    } catch (error) {
+        console.error('Error generating 2FA:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+// QR Code Verification
+export const verify2FA = async (req, res) => {
+    try {
+        const { email, token } = req.body;
+
+        // Find the user
+        const user = await User.findOne({ where: { email } });
+        if (!user || !user.twoFASecret) {
+            return res.status(404).json({ error: 'Invalid request' });
+        }
+
+        // Verify the token
+        const isVerified = speakeasy.totp.verify({
+            secret: user.twoFASecret,
+            encoding: 'base32',
+            token,
+        });
+
+        if (!isVerified) {
+            return res.status(400).json({ error: 'Invalid 2FA token' });
+        }
+
+        // Enable 2FA if verifying during setup
+        user.isTwoFAEnabled = true;
+        await user.save();
+
+        res.status(200).json({ message: '2FA verified successfully' });
+    } catch (error) {
+        console.error('Error verifying 2FA:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+// Logout a user
 export const logout = async (req, res) => {
     try {
         // Extract the token from the Authorization header

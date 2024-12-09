@@ -1,0 +1,34 @@
+{
+  "name": "session_based_authentication",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon -L --exec babel-node src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.5",
+    "nodemailer": "^6.9.16",
+    "nodemon": "^3.1.7",
+    "otp-generator": "^4.0.1",
+    "sequelize": "^6.37.5",
+    "uuid": "^11.0.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.24.6",
+    "@babel/core": "^7.24.6",
+    "@babel/node": "^7.22.19",
+    "@babel/preset-env": "^7.24.6",
+    "sequelize-cli": "^6.6.2"
+  }
+}

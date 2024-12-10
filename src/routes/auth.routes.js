@@ -2,11 +2,16 @@ import express from 'express';
 import {
     register,
     verifyEmailOTP,
+    loginFirst,
+    verifyLogin,
     login,
-    verifyLoginOTP,
+    // Forgot password,
+    // Reset password,
+    // Change password,
     logout,
     homepage,
-    generate2FA, verify2FA,
+    // generate2FAG,
+    // verify2FA,
 } from '../controllers/index.js';
 import {verifyToken} from "../middlewares/token.middleware.js";
 
@@ -19,19 +24,22 @@ router.post('/register', register);
 router.post('/verify-email-otp', verifyEmailOTP);
 
 // Login a user
-router.post('/login', login);
+router.post('/login-first', loginFirst);
 
 // Verify OTP for login
-router.post('/verify-login-otp', verifyLoginOTP);
+router.post('/verify-login', verifyLogin);
+
+// User Login
+router.post('/login', login);
 
 // Logout the user
 router.post('/logout', logout);
 
 // Google Authenticator Generator
-router.post('/google-authenticator', generate2FA);
+// router.post('/google-authenticator', generate2FAG);
 
 // QR Code Authenticator
-router.post('/qrcode-authenticator', verify2FA)
+// router.post('/qrcode-authenticator', verify2FA)
 
 // Homepage route (accessible to logged-in users only)
 router.get('/home',verifyToken, homepage);

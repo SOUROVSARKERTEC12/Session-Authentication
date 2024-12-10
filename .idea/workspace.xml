@@ -5,16 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="38c8600d-6f21-41ff-8fc3-527c4502c62f" name="Changes" comment="G-App Auth">
-      <change afterPath="$PROJECT_DIR$/src/img.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/middlewares/2fa.middleware.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/services/googleAuthenticatorService.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/controllers/auth.controllers.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/controllers/auth.controllers.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/models/User.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/models/User.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/models/tempUser.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/models/tempUser.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/routes/auth.routes.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/routes/auth.routes.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/validators/user.validator.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/validators/user.validator.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,22 +26,25 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "FaisalAhmed025"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;FaisalAhmed025&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/SOUROVSARKERTEC12/Session-Authentication.git",
-    "accountId": "c2993c9e-bf6f-44a7-8cf3-e1aa4b979d06"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/SOUROVSARKERTEC12/Session-Authentication.git&quot;,
+    &quot;accountId&quot;: &quot;c2993c9e-bf6f-44a7-8cf3-e1aa4b979d06&quot;
   }
-}]]></component>
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 3
 }</component>
   <component name="ProjectId" id="2ps3V5pOeKAUT3jQ15lFWl6piMd" />
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
@@ -54,6 +52,7 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "main",
     "javascript.nodejs.core.library.configured.version": "20.10.0",
     "javascript.nodejs.core.library.typings.version": "20.10.8",
@@ -103,8 +102,18 @@
       <workItem from="1733540976890" duration="25650000" />
       <workItem from="1733627032345" duration="3267000" />
       <workItem from="1733631585841" duration="27977000" />
-      <workItem from="1733713698178" duration="20167000" />
+      <workItem from="1733713698178" duration="20208000" />
+      <workItem from="1733800012587" duration="14845000" />
     </task>
+    <task id="LOCAL-00001" summary="G-App Auth">
+      <option name="closed" value="true" />
+      <created>1733751218799</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1733751218799</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

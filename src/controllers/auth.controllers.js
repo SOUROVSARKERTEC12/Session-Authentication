@@ -15,6 +15,7 @@ import QRCode from 'qrcode';
 import fs from 'fs';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import generate2FA from "../services/googleAuthenticatorService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -130,6 +131,189 @@ export const verifyEmailOTP = async (req, res) => {
     }
 };
 
+// Login to OTP or Google Authenticator
+export const loginFirst = async (req, res) => {
+    try {
+        const { email, password, Auth } = req.body;
+
+        if (!Auth || !["google", "email"].includes(Auth)) {
+            return res.status(400).json({ error: 'Invalid Auth type. Use "google" or "email".' });
+        }
+
+        if (Auth === "email") {
+            // Email/Password Authentication Flow
+            if (!email || !password) {
+                return res.status(400).json({ error: 'Email and password are required for email login.' });
+            }
+
+            const user = await User.findOne({ where: { email } });
+            if (!user) {
+                return res.status(401).json({ error: 'Invalid email' });
+            }
+
+            const isPasswordValid = await bcrypt.compare(password, user.password);
+            if (!isPasswordValid) {
+                return res.status(401).json({ error: 'Invalid password' });
+            }
+
+            // Generate OTP
+            const otp = EmailOTPService.generateOTP();
+            await OTPStore.create({ otp, email, tempUserId: user.id });
+
+            // Send OTP
+            await EmailOTPService.sendOTP(otp, email);
+            return res.status(200).json({ message: 'OTP sent to your email. Please verify to complete login.' });
+        } else if (Auth === "google") {
+            // Google Authenticator Login Flow
+            const user = await User.findOne({ where: { email } }); // Assuming email is passed
+            if (!user) {
+                return res.status(401).json({ error: 'Invalid email' });
+            }
+
+            // console.log("Email:", user.email);
+
+            // Trigger Google Authenticator 2FA setup/verification (if needed)
+            const QRCode = generate2FA.g_Author(user.email); // Assume this generates the QR code or returns setup details
+            console.log("Login QR:", await QRCode);
+            const QR = await QRCode;
+            return res.status(200).json({ message: 'Scan the QR code for Google Authenticator setup.', QR });
+        }
+    } catch (error) {
+        console.error('Error during login:', error);
+        res.status(500).json({ error: 'Error during login', details: error.message });
+    }
+};
+
+
+export const verifyLogin = async (req, res) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+        const { auth, email, otp } = req.body;
+
+        // Validate input
+        if (!auth || !email || !otp) {
+            return res.status(400).json({ error: 'Auth type, Email, and OTP are required' });
+        }
+
+        if (auth !== "google" && auth !== "email") {
+            return res.status(400).json({ error: 'Invalid auth method. Use "google" or "email"' });
+        }
+
+        // Handle email-based OTP verification
+        if (auth === "email") {
+            const otpRecord = await OTPStore.findOne({
+                where: {
+                    email,
+                    otp,
+                    createdAt: { [Op.gt]: new Date(Date.now() - 5 * 60 * 1000) }, // OTP must be within 5 minutes
+                },
+            });
+
+            if (!otpRecord) {
+                return res.status(400).json({ error: 'Invalid or expired OTP for email authentication' });
+            }
+
+            // Remove OTP record after successful verification
+            await OTPStore.destroy({
+                where: { email, otp },
+                transaction,
+            });
+        }
+
+        // Handle Google Authenticator token verification
+        if (auth === "google") {
+            const user = await User.findOne({ where: { email } });
+
+            if (!user || !user.twoFASecret) {
+                return res.status(404).json({ error: 'User not found or Google Authenticator not set up' });
+            }
+
+            console.log(user.twoFASecret)
+
+            const isTokenValid = speakeasy.totp.verify({
+                secret: user.twoFASecret,
+                encoding: 'base32',
+                token:otp
+            });
+
+            console.log(isTokenValid)
+            user.isTwoFAEnabled = true;
+            const Enabled = user.isTwoFAEnabled
+            await User.update({isTwoFAEnabled:Enabled}, {where: {email}});
+
+            if (!isTokenValid) {
+                return res.status(401).json({ error: 'Invalid Google Authenticator token' });
+            }
+        }
+
+        // Common logic after successful verification
+        const user = await User.findOne({ where: { email } });
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Generate a session token and JWT
+        const sessionId = uuid();
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours expiry
+        const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+        // Save the session in the database
+        await Session.create({
+            id: sessionId,
+            userId: user.id,
+            token,
+            expiresAt,
+            transaction,
+        });
+
+        // Check if deviceId exists in cookies
+        let deviceId = req.cookies.deviceId;
+
+        if (!deviceId) {
+            deviceId = uuid(); // Generate a new deviceId if not present
+            res.cookie('deviceId', deviceId, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 }); // Set cookie for 7 days
+        }
+
+        // Remember the device for future logins
+        const expirationTime = new Date();
+        expirationTime.setDate(expirationTime.getDate() + 7); // Remember for 7 days
+
+        await RememberedDevice.upsert({
+            userId: user.id,
+            deviceId,
+            expirationTime,
+            transaction,
+        });
+
+        // Commit the transaction
+        await transaction.commit();
+
+        // Set the session cookie
+        res.set('Set-Cookie', `session=${sessionId}; HttpOnly; Path=/`);
+
+        res.status(200).json({
+            message: 'OTP verified successfully. Login complete.',
+            token, // Send JWT token
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name, // Include additional user info as required
+            },
+        });
+    } catch (error) {
+        // Rollback the transaction in case of an error
+        await transaction.rollback();
+        console.error('Error during OTP verification:', error);
+        res.status(500).json({
+            error: 'Error during OTP verification',
+            details: error.message,
+        });
+    }
+};
+
+
 // Login a user
 export const login = async (req, res) => {
     try {
@@ -142,23 +326,30 @@ export const login = async (req, res) => {
 
         // Find user by email
         const user = await User.findOne({ where: { email } });
+        // console.log(user)
         if (!user) {
             return res.status(401).json({ error: 'Invalid email' });
         }
 
+        // console.log(user.isTwoFAEnabled)
+
         const UserID = user.id;
         const UserEmail = user.email;
-        console.log(UserEmail);
+        // console.log(UserEmail);
 
         // Verify password
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
             return res.status(401).json({ error: 'Invalid password' });
         }
+        // console.log(isPasswordValid);
 
         // Check if 2FA is enabled
-        if (user.isTwoFAEnabled) {
-            return res.status(200).json({ message: '2FA token required' });
+        console.log(user.verified)
+        if (user.verified) {
+            if(!user.isTwoFAEnabled) {
+                return res.status(200).json({ message: '2FA token required' });
+            }
         }
         // console.log(user.isTwoFAEnabled)
 
@@ -240,184 +431,185 @@ export const login = async (req, res) => {
 };
 
 // Verify OTP during login
-export const verifyLoginOTP = async (req, res) => {
-    const transaction = await sequelize.transaction();
-
-    try {
-        const { email, otp } = req.body;
-
-        // Validate input
-        if (!email || !otp) {
-            return res.status(400).json({ error: 'Email and OTP are required' });
-        }
-
-        // Find OTP record in OTPStore
-        const otpRecord = await OTPStore.findOne({
-            where: {
-                email,
-                otp,
-                createdAt: { [Op.gt]: new Date(Date.now() - 5 * 60 * 1000) }, // OTP must be within 5 minutes
-            },
-        });
-
-        if (!otpRecord) {
-            return res.status(400).json({ error: 'Invalid or expired OTP' });
-        }
-
-        // Find the user associated with this email
-        const user = await User.findOne({
-            where: { email },
-        });
-
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        // Remove OTP record after successful verification
-        await OTPStore.destroy({
-            where: { email, otp },
-            transaction,
-        });
-
-        // Generate a session token and JWT
-        const sessionId = uuid();
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours expiry
-        const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-        // Save the session in the database
-        await Session.create({
-            id: sessionId,
-            userId: user.id,
-            token,
-            expiresAt,
-            transaction,
-        });
-
-        // Check if deviceId exists in cookies
-        let deviceId = req.cookies.deviceId;
-
-        if (!deviceId) {
-            deviceId = uuid(); // Generate a new deviceId if not present
-            res.cookie('deviceId', deviceId, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 }); // Set cookie for 7 days
-        }
-
-        // Remember the device for future logins
-        const expirationTime = new Date();
-        expirationTime.setDate(expirationTime.getDate() + 7); // Remember for 7 days
-
-        await RememberedDevice.upsert({
-            userId: user.id,
-            deviceId,
-            expirationTime,
-            transaction,
-        });
-
-        // Commit the transaction
-        await transaction.commit();
-
-        // Set the session cookie
-        res.set('Set-Cookie', `session=${sessionId}; HttpOnly; Path=/`);
-
-        res.status(200).json({
-            message: 'OTP verified successfully. Login complete.',
-            token, // Send JWT token
-            user: {
-                id: user.id,
-                email: user.email,
-                name: user.name, // Include additional user info as required
-            },
-        });
-    } catch (error) {
-        // Rollback the transaction in case of an error
-        await transaction.rollback();
-        console.error('Error during OTP verification:', error);
-        res.status(500).json({
-            error: 'Error during OTP verification',
-            details: error.message,
-        });
-    }
-};
+// export const verifyLoginOTP = async (req, res) => {
+//     const transaction = await sequelize.transaction();
+//
+//     try {
+//         const { email, otp } = req.body;
+//
+//         // Validate input
+//         if (!email || !otp) {
+//             return res.status(400).json({ error: 'Email and OTP are required' });
+//         }
+//
+//         // Find OTP record in OTPStore
+//         const otpRecord = await OTPStore.findOne({
+//             where: {
+//                 email,
+//                 otp,
+//                 createdAt: { [Op.gt]: new Date(Date.now() - 5 * 60 * 1000) }, // OTP must be within 5 minutes
+//             },
+//         });
+//
+//         if (!otpRecord) {
+//             return res.status(400).json({ error: 'Invalid or expired OTP' });
+//         }
+//
+//         // Find the user associated with this email
+//         const user = await User.findOne({
+//             where: { email },
+//         });
+//
+//         if (!user) {
+//             return res.status(404).json({ error: 'User not found' });
+//         }
+//
+//         // Remove OTP record after successful verification
+//         await OTPStore.destroy({
+//             where: { email, otp },
+//             transaction,
+//         });
+//
+//         // Generate a session token and JWT
+//         const sessionId = uuid();
+//         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours expiry
+//         const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
+//
+//         // Save the session in the database
+//         await Session.create({
+//             id: sessionId,
+//             userId: user.id,
+//             token,
+//             expiresAt,
+//             transaction,
+//         });
+//
+//         // Check if deviceId exists in cookies
+//         let deviceId = req.cookies.deviceId;
+//
+//         if (!deviceId) {
+//             deviceId = uuid(); // Generate a new deviceId if not present
+//             res.cookie('deviceId', deviceId, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 }); // Set cookie for 7 days
+//         }
+//
+//         // Remember the device for future logins
+//         const expirationTime = new Date();
+//         expirationTime.setDate(expirationTime.getDate() + 7); // Remember for 7 days
+//
+//         await RememberedDevice.upsert({
+//             userId: user.id,
+//             deviceId,
+//             expirationTime,
+//             transaction,
+//         });
+//
+//         // Commit the transaction
+//         await transaction.commit();
+//
+//         // Set the session cookie
+//         res.set('Set-Cookie', `session=${sessionId}; HttpOnly; Path=/`);
+//
+//         res.status(200).json({
+//             message: 'OTP verified successfully. Login complete.',
+//             token, // Send JWT token
+//             user: {
+//                 id: user.id,
+//                 email: user.email,
+//                 name: user.name, // Include additional user info as required
+//             },
+//         });
+//     } catch (error) {
+//         // Rollback the transaction in case of an error
+//         await transaction.rollback();
+//         console.error('Error during OTP verification:', error);
+//         res.status(500).json({
+//             error: 'Error during OTP verification',
+//             details: error.message,
+//         });
+//     }
+// };
 
 // Google Authenticator
-export const generate2FA = async (req, res) => {
-    try {
-        const { email } = req.body;
-
-        // Find the user
-        const user = await User.findOne({ where: { email } });
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        // Generate a secret for 2FA
-        const secret = speakeasy.generateSecret({
-            name: `Google_Authenticator (${email})`, // Application name with user email
-        });
-
-        // Store the secret in the database (in production, encrypt this)
-        user.twoFASecret = secret.base32;
-        await user.save();
-
-        // Generate a QR code for the secret
-        const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
-        // Generate the <img> HTML tag with the base64 QR code
-        const imgHtml = `<html>
-                                    <img src="${qrCodeUrl}">
-                                 </html>`;
-
-        // Define the file path where you want to save the HTML file
-        const filePath = path.join(__dirname, 'img.html');
-        // Send the QR code image (as base64) and the manual code in the JSON response
-        fs.writeFile(filePath, imgHtml, (err) => {
-            if (err) {
-                console.error('Error saving the HTML file:', err);
-                return res.status(500).json({ message: 'Error saving HTML file' });
-            }
-
-            // Send a response indicating success
-            res.status(200).json({
-                message: '2FA setup HTML file saved',
-                filePath: filePath, // Optionally send the file path in the response
-            });
-        });
-    } catch (error) {
-        console.error('Error generating 2FA:', error.message);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-};
+// export const generate2FAG = async (req, res) => {
+//     try {
+//         const { email } = req.body;
+//
+//         // Find the user
+//         const user = await User.findOne({ where: { email } });
+//         if (!user) {
+//             return res.status(404).json({ error: 'User not found' });
+//         }
+//
+//         // Generate a secret for 2FA
+//         const secret = speakeasy.generateSecret({
+//             name: `Google_Authenticator (${email})`, // Application name with user email
+//         });
+//
+//         // Store the secret in the database (in production, encrypt this)
+//         user.twoFASecret = secret.base32;
+//         await user.save();
+//
+//         // Generate a QR code for the secret
+//         const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+//         // Generate the <img> HTML tag with the base64 QR code
+//         const imgHtml = `<html>
+//                                     <img src="${qrCodeUrl}">
+//                                  </html>`;
+//
+//         // Define the file path where you want to save the HTML file
+//         const filePath = path.join(__dirname, 'img.html');
+//         // Send the QR code image (as base64) and the manual code in the JSON response
+//         fs.writeFile(filePath, imgHtml, (err) => {
+//             if (err) {
+//                 console.error('Error saving the HTML file:', err);
+//                 return res.status(500).json({ message: 'Error saving HTML file' });
+//             }
+//
+//             // Send a response indicating success
+//             res.status(200).json({
+//                 message: '2FA setup HTML file saved',
+//                 filePath: filePath, // Optionally send the file path in the response
+//             });
+//         });
+//     } catch (error) {
+//         console.error('Error generating 2FA:', error.message);
+//         res.status(500).json({ error: 'Internal server error' });
+//     }
+// };
 
 // QR Code Verification
-export const verify2FA = async (req, res) => {
-    try {
-        const { email, token } = req.body;
-
-        // Find the user
-        const user = await User.findOne({ where: { email } });
-        if (!user || !user.twoFASecret) {
-            return res.status(404).json({ error: 'Invalid request' });
-        }
-
-        // Verify the token
-        const isVerified = speakeasy.totp.verify({
-            secret: user.twoFASecret,
-            encoding: 'base32',
-            token,
-        });
-
-        if (!isVerified) {
-            return res.status(400).json({ error: 'Invalid 2FA token' });
-        }
-
-        // Enable 2FA if verifying during setup
-        user.isTwoFAEnabled = true;
-        await user.save();
-
-        res.status(200).json({ message: '2FA verified successfully' });
-    } catch (error) {
-        console.error('Error verifying 2FA:', error.message);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-};
+// export const verify2FA = async (req, res) => {
+//     try {
+//         const { email, token } = req.body;
+//
+//         // Find the user
+//         const user = await User.findOne({ where: { email } });
+//         if (!user || !user.twoFASecret) {
+//             return res.status(404).json({ error: 'Invalid request' });
+//         }
+//
+//         // Verify the token
+//         const isVerified = speakeasy.totp.verify({
+//             secret: user.twoFASecret,
+//             encoding: 'base32',
+//             token,
+//         });
+//         console.log(isVerified)
+//
+//         if (!isVerified) {
+//             return res.status(400).json({ error: 'Invalid 2FA token' });
+//         }
+//
+//         // Enable 2FA if verifying during setup
+//         user.isTwoFAEnabled = true;
+//         await user.save();
+//
+//         res.status(200).json({ message: '2FA verified successfully' });
+//     } catch (error) {
+//         console.error('Error verifying 2FA:', error.message);
+//         res.status(500).json({ error: 'Internal server error' });
+//     }
+// };
 
 // Logout a user
 export const logout = async (req, res) => {

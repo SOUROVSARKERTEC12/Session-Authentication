@@ -1,5 +1,6 @@
 import { DataTypes } from 'sequelize';
 import sequelize from '../config/database.config.js';
+import {ZodNull} from "zod";
 
 const User = sequelize.define('User', {
     id: {
